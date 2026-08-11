@@ -375,6 +375,18 @@ $("#startPractice").onclick = () => {
   enterRoom("practice");
   startGame(false);
 };
+$("#startFriends").onclick = () => {
+  const id = Math.random().toString(36).slice(2, 8);
+  const room = {
+    id,
+    name: "친구들과 그림 놀이터",
+    players: 1,
+    max: 8,
+    rounds: 3,
+  };
+  saveRooms([...rooms().filter((item) => item.id !== id), room]);
+  enterRoom(id);
+};
 $("#readyButton").onclick = () => {
   state.ready = !state.ready;
   $("#readyButton").textContent = state.ready ? "준비 완료 ✓" : "준비하기";
