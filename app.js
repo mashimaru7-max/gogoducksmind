@@ -29,39 +29,39 @@ function show(id) {
   $(`#${id}`).classList.add("active");
 }
 
-function rooms() {
-  return JSON.parse(localStorage.getItem("duckRooms") || "[]");
-}
-
-function saveRooms(nextRooms) {
-  localStorage.setItem("duckRooms", JSON.stringify(nextRooms));
-}
-
 function wordForRound() {
   const seed = [...String(state.room?.id || "practice")].reduce((sum, char) => sum + char.charCodeAt(0), 0);
   return CATCHMIND_WORDS[(seed + state.round - 1) % CATCHMIND_WORDS.length];
 }
 
+function getPracticeRoom() {
+  return { id: "practice", name: "혼자 그리는 연습방", players: 1, max: 1, rounds: 3, practice: true };
+}
+
+function getFriendRoom(id) {
+  return { id, name: `친구방 ${id.toUpperCase()}`, players: 1, max: 8, rounds: 3, practice: false };
+}
+
 function renderRooms() {
-  const saved = rooms();
-  const defaults = saved.length
-    ? saved
-    : [{ id: "practice", name: "혼자 그리는 연습방", players: 1, max: 8, rounds: 3 }];
+  $("#roomList").innerHTML = `
+    <article class="room-card card">
+      <span class="status">혼자 가능</span>
+      <h3>혼자 그리는 연습방</h3>
+      <p>👤 1인 · 3 라운드</p>
+      <button class="outline join" data-id="practice">연습하기</button>
+    </article>
+    <article class="room-card card">
+      <span class="status">친구 초대</span>
+      <h3>새 친구방 만들기</h3>
+      <p>👥 최대 8명 · 공유 링크로 입장</p>
+      <button class="gold join-friends">친구방 만들기</button>
+    </article>`;
 
-  $("#roomList").innerHTML = defaults
-    .map(
-      (room) => `<article class="room-card card">
-        <span class="status">대기 중</span>
-        <h3>${room.name}</h3>
-        <p>👥 ${room.players || 1}/${room.max || 8} · ${room.rounds || 3} 라운드</p>
-        <button class="outline join" data-id="${room.id}">입장하기</button>
-      </article>`,
-    )
-    .join("");
-
-  $$(".join").forEach((button) => {
-    button.onclick = () => enterRoom(button.dataset.id);
-  });
+  $(".join").onclick = () => {
+    enterRoom("practice");
+    startGame(false);
+  };
+  $(".join-friends").onclick = () => createFriendRoom();
 }
 
 function createRoom() {
@@ -72,50 +72,77 @@ function createRoom() {
     players: 1,
     max: 8,
     rounds: Number($("#roundInput").value),
+    practice: false,
   };
-  saveRooms([...rooms(), room]);
   $("#roomDialog").close();
-  enterRoom(id);
+  enterRoom(id, room);
 }
 
-function enterRoom(id) {
-  const room = rooms().find((item) => item.id === id) || {
+function createFriendRoom() {
+  const id = Math.random().toString(36).slice(2, 8);
+  enterRoom(id, {
     id,
-    name: id === "practice" ? "혼자 그리는 연습방" : `친구방 ${id.toUpperCase()}`,
-    rounds: 3,
+    name: "친구들과 그림 놀이터",
+    players: 1,
     max: 8,
-  };
+    rounds: 3,
+    practice: false,
+  });
+}
 
-  state.room = room;
+function enterRoom(id, room = null) {
+  state.room = room || (id === "practice" ? getPracticeRoom() : getFriendRoom(id));
   state.round = 1;
   state.drawerId = null;
-  $("#roomCode").textContent = room.id.toUpperCase();
-  $("#roomName").textContent = room.name;
+  state.ready = false;
+  state.peers = {
+    [state.playerId]: { name: state.name, ready: state.ready, coins: state.coins },
+  };
+
+  $("#roomCode").textContent = state.room.id.toUpperCase();
+  $("#roomName").textContent = state.room.name;
   $("#roundNum").textContent = state.round;
-  window.history.replaceState({}, "", `#room=${room.id}`);
+  $("#readyButton").textContent = "준비하기";
+  window.history.replaceState({}, "", `#room=${state.room.id}`);
   $("#shareUrl").textContent = location.href;
   connect();
   renderPlayers();
   show("room");
 }
 
+function leaveRoom() {
+  if (state.room) send("leave");
+  clearInterval(timer);
+  try {
+    if (socket) socket.close();
+    if (channel) channel.close();
+  } catch {}
+  socket = null;
+  channel = null;
+  state.room = null;
+  state.transport = null;
+  state.drawerId = null;
+  state.peers = {};
+  strokeHistory = [];
+  window.history.replaceState({}, "", location.pathname);
+  show("home");
+  renderRooms();
+}
+
 function connect() {
   if (socket) socket.close();
   if (channel) channel.close();
 
-  state.peers = {
-    [state.playerId]: { name: state.name, ready: state.ready, coins: state.coins },
-  };
-
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const wsUrl = `${protocol}//${location.host}/ws?room=${encodeURIComponent(state.room.id)}`;
   socket = new WebSocket(wsUrl);
+  state.connectedOnline = false;
 
   socket.onopen = () => {
     state.connectedOnline = true;
     state.transport = "server";
     updateConnection();
-    send("presence");
+    send("presence", { room: state.room });
   };
 
   socket.onmessage = (event) => receive(JSON.parse(event.data));
@@ -130,7 +157,7 @@ function connect() {
   };
 
   setTimeout(() => {
-    if (socket.readyState !== WebSocket.OPEN) connectLocalOnly();
+    if (socket?.readyState !== WebSocket.OPEN) connectLocalOnly();
   }, 600);
 }
 
@@ -139,21 +166,19 @@ function connectLocalOnly() {
   try {
     if (socket) socket.close();
   } catch {}
-
   state.connectedOnline = false;
   state.transport = "local";
   channel = new BroadcastChannel(`duck-catchmind-${state.room.id}`);
   channel.onmessage = (event) => receive(event.data);
   updateConnection();
-  send("presence");
+  send("presence", { room: state.room });
 }
 
 function updateConnection() {
-  const text =
+  $("#connection").textContent =
     state.transport === "server"
-      ? "온라인 연결 완료 · 친구도 같은 주소와 방 코드로 들어올 수 있어요"
-      : "혼자/같은 브라우저 테스트 모드 · 친구 테스트는 run-game.ps1로 실행하세요";
-  $("#connection").textContent = text;
+      ? "온라인 연결 완료 · 친구는 공유 링크로 바로 들어올 수 있어요"
+      : "로컬 테스트 모드 · 인터넷 친구와 하려면 서버 배포가 필요해요";
 }
 
 function send(type, data = {}) {
@@ -177,17 +202,17 @@ function send(type, data = {}) {
 function receive(message) {
   if (message.from === state.playerId) return;
 
+  if (message.type === "snapshot") syncSnapshot(message.data);
   if (message.type === "presence" || message.type === "ready") {
-    state.peers[message.from] = {
-      name: message.name,
-      ready: message.ready,
-      coins: message.coins,
-    };
+    state.peers[message.from] = { name: message.name, ready: message.ready, coins: message.coins };
     renderPlayers();
     renderScores();
   }
-
-  if (message.type === "snapshot") syncSnapshot(message.data);
+  if (message.type === "leave") {
+    delete state.peers[message.from];
+    renderPlayers();
+    renderScores();
+  }
   if (message.type === "start") startGame(false, message.data.drawerId, message.data.round);
   if (message.type === "stroke") {
     drawStroke(message.data);
@@ -199,6 +224,10 @@ function receive(message) {
 }
 
 function syncSnapshot(data) {
+  if (data.room && !state.room?.practice) {
+    state.room = { ...state.room, ...data.room };
+    $("#roomName").textContent = state.room.name;
+  }
   state.peers = {
     [state.playerId]: { name: state.name, ready: state.ready, coins: state.coins },
     ...data.peers,
@@ -219,7 +248,7 @@ function renderPlayers() {
   $("#players").innerHTML = players
     .map((player) => `<div class="player ${player.ready ? "ready" : ""}>🦆 ${player.name}${player.ready ? " 준비" : ""}</div>`)
     .join("");
-  $("#beginButton").style.display = "inline-block";
+  renderScores();
 }
 
 function startGame(broadcast = true, drawerId = state.playerId, round = 1) {
@@ -333,6 +362,7 @@ function clearCanvas(local) {
 }
 
 function renderScores() {
+  if (!$("#scoreList")) return;
   const players = Object.values(state.peers || {});
   $("#scoreList").innerHTML = players
     .map((player, index) => `<div class="score-row"><span>${index === 0 ? "👑" : "🦆"} ${player.name}</span><b>${player.coins || 200} DC</b></div>`)
@@ -375,18 +405,7 @@ $("#startPractice").onclick = () => {
   enterRoom("practice");
   startGame(false);
 };
-$("#startFriends").onclick = () => {
-  const id = Math.random().toString(36).slice(2, 8);
-  const room = {
-    id,
-    name: "친구들과 그림 놀이터",
-    players: 1,
-    max: 8,
-    rounds: 3,
-  };
-  saveRooms([...rooms().filter((item) => item.id !== id), room]);
-  enterRoom(id);
-};
+$("#startFriends").onclick = () => createFriendRoom();
 $("#readyButton").onclick = () => {
   state.ready = !state.ready;
   $("#readyButton").textContent = state.ready ? "준비 완료 ✓" : "준비하기";
@@ -395,11 +414,7 @@ $("#readyButton").onclick = () => {
 };
 $("#beginButton").onclick = () => startGame(true);
 $$("[data-home]").forEach((button) => {
-  button.onclick = () => {
-    clearInterval(timer);
-    show("home");
-    renderRooms();
-  };
+  button.onclick = () => leaveRoom();
 });
 $$("[data-color]").forEach((button) => {
   button.onclick = () => {
@@ -424,6 +439,10 @@ $("#guessForm").onsubmit = (event) => {
   if (correct) celebrate(state.name, state.word, true);
   input.value = "";
 };
+window.addEventListener("beforeunload", () => {
+  if (state.room) send("leave");
+});
 
 renderRooms();
+localStorage.removeItem("duckRooms");
 if (location.hash.startsWith("#room=")) enterRoom(location.hash.slice(6));

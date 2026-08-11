@@ -59,8 +59,11 @@ server.on("upgrade", (req, socket) => {
 
   const roomId = url.searchParams.get("room") || "practice";
   const room = getRoom(roomId);
+  socket.roomId = roomId;
+  socket.playerId = null;
   room.clients.add(socket);
   send(socket, "snapshot", {
+    room: room.info,
     peers: room.peers,
     inGame: room.inGame,
     drawerId: room.drawerId,
@@ -72,12 +75,13 @@ server.on("upgrade", (req, socket) => {
     const text = readFrame(buffer);
     if (!text) return;
     const message = JSON.parse(text);
+    if (message.from) socket.playerId = message.from;
     remember(room, message);
     broadcast(room, socket, message);
   });
 
-  socket.on("close", () => room.clients.delete(socket));
-  socket.on("error", () => room.clients.delete(socket));
+  socket.on("close", () => removeClient(socket));
+  socket.on("error", () => removeClient(socket));
 });
 
 function getRoom(roomId) {
@@ -89,13 +93,19 @@ function getRoom(roomId) {
       drawerId: null,
       round: 1,
       strokes: [],
+      info: null,
     });
   }
   return rooms.get(roomId);
 }
 
 function remember(room, message) {
+  if (message.type === "leave") {
+    delete room.peers[message.from];
+    return;
+  }
   if (message.type === "presence" || message.type === "ready") {
+    if (message.data?.room) room.info = message.data.room;
     room.peers[message.from] = {
       name: message.name,
       ready: message.ready,
@@ -110,6 +120,17 @@ function remember(room, message) {
   }
   if (message.type === "stroke") room.strokes.push(message.data);
   if (message.type === "clear") room.strokes = [];
+}
+
+function removeClient(socket) {
+  const room = rooms.get(socket.roomId);
+  if (!room) return;
+  room.clients.delete(socket);
+  if (socket.playerId) {
+    delete room.peers[socket.playerId];
+    broadcast(room, socket, { type: "leave", from: socket.playerId, name: "server", data: {} });
+  }
+  if (room.clients.size === 0) rooms.delete(socket.roomId);
 }
 
 function broadcast(room, sender, message) {
