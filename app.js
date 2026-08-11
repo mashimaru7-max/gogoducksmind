@@ -16,6 +16,7 @@ const state = {
   peers: {},
   transport: null,
   connectedOnline: false,
+  hostId: null,
 };
 
 let timer;
@@ -35,11 +36,11 @@ function wordForRound() {
 }
 
 function getPracticeRoom() {
-  return { id: "practice", name: "혼자 그리는 연습방", players: 1, max: 1, rounds: 3, practice: true };
+  return { id: "practice", name: "혼자 그리는 연습방", players: 1, max: 1, rounds: 3, practice: true, hostId: state.playerId };
 }
 
 function getFriendRoom(id) {
-  return { id, name: `친구방 ${id.toUpperCase()}`, players: 1, max: 8, rounds: 3, practice: false };
+  return { id, name: `친구방 ${id.toUpperCase()}`, players: 1, max: 8, rounds: 3, practice: false, hostId: null };
 }
 
 function renderRooms() {
@@ -73,6 +74,7 @@ function createRoom() {
     max: 8,
     rounds: Number($("#roundInput").value),
     practice: false,
+    hostId: state.playerId,
   };
   $("#roomDialog").close();
   enterRoom(id, room);
@@ -87,11 +89,13 @@ function createFriendRoom() {
     max: 8,
     rounds: 3,
     practice: false,
+    hostId: state.playerId,
   });
 }
 
 function enterRoom(id, room = null) {
   state.room = room || (id === "practice" ? getPracticeRoom() : getFriendRoom(id));
+  state.hostId = state.room.hostId || (state.room.practice ? state.playerId : null);
   state.round = 1;
   state.drawerId = null;
   state.ready = false;
@@ -107,6 +111,7 @@ function enterRoom(id, room = null) {
   $("#shareUrl").textContent = location.href;
   connect();
   renderPlayers();
+  renderHostControls();
   show("room");
 }
 
@@ -122,6 +127,7 @@ function leaveRoom() {
   state.room = null;
   state.transport = null;
   state.drawerId = null;
+  state.hostId = null;
   state.peers = {};
   strokeHistory = [];
   window.history.replaceState({}, "", location.pathname);
@@ -226,13 +232,16 @@ function receive(message) {
 function syncSnapshot(data) {
   if (data.room && !state.room?.practice) {
     state.room = { ...state.room, ...data.room };
+    state.hostId = state.room.hostId || data.hostId || state.hostId;
     $("#roomName").textContent = state.room.name;
   }
+  if (data.hostId) state.hostId = data.hostId;
   state.peers = {
     [state.playerId]: { name: state.name, ready: state.ready, coins: state.coins },
     ...data.peers,
   };
   renderPlayers();
+  renderHostControls();
   renderScores();
 
   if (data.inGame) {
@@ -249,6 +258,12 @@ function renderPlayers() {
     .map((player) => `<div class="player ${player.ready ? "ready" : ""}>🦆 ${player.name}${player.ready ? " 준비" : ""}</div>`)
     .join("");
   renderScores();
+  renderHostControls();
+}
+
+function renderHostControls() {
+  const isHost = state.room?.practice || state.hostId === state.playerId;
+  $("#beginButton").style.display = isHost ? "inline-block" : "none";
 }
 
 function startGame(broadcast = true, drawerId = state.playerId, round = 1) {
@@ -412,7 +427,10 @@ $("#readyButton").onclick = () => {
   send("ready");
   renderPlayers();
 };
-$("#beginButton").onclick = () => startGame(true);
+$("#beginButton").onclick = () => {
+  if (state.hostId && state.hostId !== state.playerId && !state.room?.practice) return;
+  startGame(true);
+};
 $$("[data-home]").forEach((button) => {
   button.onclick = () => leaveRoom();
 });
@@ -433,7 +451,7 @@ $("#guessForm").onsubmit = (event) => {
   const input = $("#guessInput");
   const text = input.value.trim();
   if (!text) return;
-  const correct = text.replaceAll(" ", "") === state.word;
+  const correct = normalizeAnswer(text) === normalizeAnswer(state.word);
   addMessage(state.name, text, correct);
   send("message", { text, correct });
   if (correct) celebrate(state.name, state.word, true);
@@ -442,6 +460,10 @@ $("#guessForm").onsubmit = (event) => {
 window.addEventListener("beforeunload", () => {
   if (state.room) send("leave");
 });
+
+function normalizeAnswer(value) {
+  return String(value).replace(/\s+/g, "").toLowerCase();
+}
 
 renderRooms();
 localStorage.removeItem("duckRooms");

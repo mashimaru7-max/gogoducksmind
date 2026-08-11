@@ -64,6 +64,7 @@ server.on("upgrade", (req, socket) => {
   room.clients.add(socket);
   send(socket, "snapshot", {
     room: room.info,
+    hostId: room.hostId,
     peers: room.peers,
     inGame: room.inGame,
     drawerId: room.drawerId,
@@ -76,7 +77,7 @@ server.on("upgrade", (req, socket) => {
     if (!text) return;
     const message = JSON.parse(text);
     if (message.from) socket.playerId = message.from;
-    remember(room, message);
+    if (remember(room, message) === false) return;
     broadcast(room, socket, message);
   });
 
@@ -94,6 +95,7 @@ function getRoom(roomId) {
       round: 1,
       strokes: [],
       info: null,
+      hostId: null,
     });
   }
   return rooms.get(roomId);
@@ -106,6 +108,7 @@ function remember(room, message) {
   }
   if (message.type === "presence" || message.type === "ready") {
     if (message.data?.room) room.info = message.data.room;
+    if (message.data?.room?.hostId && !room.hostId) room.hostId = message.data.room.hostId;
     room.peers[message.from] = {
       name: message.name,
       ready: message.ready,
@@ -113,6 +116,7 @@ function remember(room, message) {
     };
   }
   if (message.type === "start") {
+    if (room.hostId && message.from !== room.hostId) return false;
     room.inGame = true;
     room.drawerId = message.data.drawerId;
     room.round = message.data.round || 1;
