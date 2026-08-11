@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>고고덕 아일랜드 · 캐치마인드</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#">고고덕 아일랜드</a>
+      <div class="coin">🪙 <b id="coinCount">200</b> DC</div>
+    </header>
+
+    <section id="home" class="screen active">
+      <div class="hero card">
+        <div class="hero-copy">
+          <span class="eyebrow">GO GO DUCK ISLAND</span>
+          <h1>그려서 맞히고<br><em>DC를 받아요</em></h1>
+          <p>친구들과 동시에 즐기는 말랑말랑 그림 퀴즈</p>
+          <button class="gold big" id="startPractice">혼자 연습하기 <span>→</span></button>
+          <small>친구와 테스트하려면 run-game.ps1을 실행한 뒤 표시되는 네트워크 주소를 공유하세요.</small>
+        </div>
+        <div class="duck-wrap">
+          <img src="duck-basic.png" alt="캐치마인드 오리 마스코트" />
+          <span class="duck-note">오늘은 그림 천재<br>누구일까요?</span>
+        </div>
+      </div>
+
+      <div class="section-title">
+        <div>
+          <span>게임 라운지</span>
+          <h2>지금 열려 있는 방</h2>
+        </div>
+        <div class="lobby-actions">
+          <form id="joinCodeForm" class="quick-join">
+            <input id="joinCodeInput" placeholder="방 코드" maxlength="12" />
+            <button class="outline">입장</button>
+          </form>
+          <button class="gold" id="createRoom">＋ 방 만들기</button>
+        </div>
+      </div>
+      <section class="room-grid" id="roomList"></section>
+    </section>
+
+    <section id="room" class="screen">
+      <button class="back" data-home>← 게임 목록으로</button>
+      <div class="waiting card">
+        <img class="waiting-duck" src="duck-drawing.png" alt="그리는 오리" />
+        <div>
+          <span class="eyebrow">ROOM · <span id="roomCode"></span></span>
+          <h2 id="roomName">오리들의 그림 놀이터</h2>
+          <p id="connection">연결 준비 중</p>
+          <div class="players" id="players"></div>
+          <button class="gold big" id="readyButton">준비하기</button>
+          <button class="outline big host-only" id="beginButton">게임 시작</button>
+          <p class="hint">친구에게 아래 주소를 그대로 보내면 같은 방으로 바로 들어올 수 있어요.</p>
+          <p class="share-link" id="shareUrl"></p>
+        </div>
+      </div>
+    </section>
+
+    <section id="game" class="screen">
+      <div class="game-head">
+        <button class="back" data-home>← 나가기</button>
+        <div class="round-pill">ROUND <b id="roundNum">1</b>/3</div>
+        <div class="timer">⏳ <b id="time">60</b></div>
+        <div class="coin">🪙 <b id="gameCoin">200</b> DC</div>
+      </div>
+
+      <div class="word-card card">
+        <img id="roleDuck" class="role-duck" src="duck-basic.png" alt="현재 역할 오리" />
+        <div>
+          <span id="roleLabel">그림을 보고 정답을 맞혀보세요!</span>
+          <h2 id="wordDisplay">□ □ □</h2>
+        </div>
+      </div>
+
+      <div class="game-layout">
+        <section class="canvas-card card">
+          <canvas id="canvas" width="760" height="470"></canvas>
+          <div class="tools">
+            <button data-color="#ff738e" class="swatch pink" title="분홍"></button>
+            <button data-color="#85cf9e" class="swatch green" title="초록"></button>
+            <button data-color="#333" class="swatch black" title="검정"></button>
+            <input type="range" id="brush" min="2" max="28" value="8" aria-label="붓 굵기">
+            <button id="undo" title="되돌리기">↶</button>
+            <button id="clear" title="지우기">🗑</button>
+          </div>
+        </section>
+
+        <aside class="side">
+          <div class="score-card card">
+            <h3>참가자</h3>
+            <div id="scoreList"></div>
+          </div>
+          <div class="chat-card card">
+            <h3>채팅 · 정답 입력</h3>
+            <div id="messages" class="messages"></div>
+            <form id="guessForm">
+              <input id="guessInput" autocomplete="off" placeholder="정답을 입력하세요" />
+              <button class="gold">↑</button>
+            </form>
+          </div>
+        </aside>
+      </div>
+
+      <div id="answerPopup" class="answer-popup" hidden>
+        <img src="duck-correct.png" alt="정답을 맞힌 오리" />
+        <b>정답!</b><span id="answerText"></span>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="roomDialog">
+    <form method="dialog" class="modal card">
+      <button class="close" value="cancel">×</button>
+      <span class="eyebrow">NEW ROOM</span>
+      <h2>새로운 방 만들기</h2>
+      <label>방 이름<input id="roomInput" value="오리들의 그림 놀이터" maxlength="22"></label>
+      <label>라운드 수
+        <select id="roundInput">
+          <option value="3">3 라운드</option>
+          <option value="5">5 라운드</option>
+          <option value="7">7 라운드</option>
+        </select>
+      </label>
+      <button class="gold big" id="confirmRoom" value="default">방 만들기</button>
+    </form>
+  </dialog>
+
+  <script src="words.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
